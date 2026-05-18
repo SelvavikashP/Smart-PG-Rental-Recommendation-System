@@ -32,10 +32,6 @@ class ScoutResponse(BaseModel):
     response: str
     recommended_property_ids: List[int]
 
-# Groq API endpoint configuration
-GROQ_API_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.1-8b-instant"
-
 def local_scout_search(query: str, properties: List[Property]) -> tuple[str, List[int]]:
     """
     Performs a high-quality semantic match on the database properties and generates
@@ -123,10 +119,10 @@ async def suggest_properties(request: ScoutRequest, db: Session = Depends(get_db
         logger.error(f"Error fetching properties for AI context: {e}")
         raise HTTPException(status_code=500, detail="Database query error.")
 
-    # 2. Retrieve the Groq API Key
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    if not groq_key or not groq_key.startswith("gsk_"):
-        logger.warning("GROQ_API_KEY is missing or invalid. Falling back to high-fidelity local match.")
+    # 2. Retrieve the Gemini API Key
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        logger.warning("GEMINI_API_KEY is missing. Falling back to high-fidelity local match.")
         fallback_text, fallback_ids = local_scout_search(request.message, properties)
         return ScoutResponse(response=fallback_text, recommended_property_ids=fallback_ids)
 
@@ -148,7 +144,7 @@ async def suggest_properties(request: ScoutRequest, db: Session = Depends(get_db
             "trust_score": p.safety_score
         })
 
-    # 4. Construct System Prompt
+    # 4. Construct System Prompt & Conversation History
     system_prompt = (
         "You are the 'SmartPG AI Scout', a premium, highly knowledgeable accommodation finder. "
         "Your task is to recommend the best matching direct-owner student PGs or rental houses based on the user's natural language request. "
@@ -164,36 +160,38 @@ async def suggest_properties(request: ScoutRequest, db: Session = Depends(get_db
         "3. Keep your response concise, structured with bullet points, and highly professional."
     )
 
-    # 5. Build conversation history payload
-    messages = [{"role": "system", "content": system_prompt}]
+    # Build standard prompt text payload for Gemini
+    prompt_text = f"{system_prompt}\n\n"
     for msg in request.chat_history:
-        messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": request.message})
+        prompt_text += f"{msg.role.capitalize()}: {msg.content}\n"
+    prompt_text += f"User: {request.message}\nAssistant:"
 
-    # 6. Execute API request to Groq Llama-3 asynchronously
+    # 5. Execute API request to Google Gemini API asynchronously
+    gemini_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt_text
+                    }
+                ]
+            }
+        ]
+    }
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            headers = {
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": GROQ_MODEL,
-                "messages": messages,
-                "temperature": 0.3,
-                "max_tokens": 1000
-            }
-            
-            logger.info("Sending prompt to Groq API...")
-            response = await client.post(GROQ_API_ENDPOINT, headers=headers, json=payload)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            logger.info("Sending prompt to Google Gemini API...")
+            response = await client.post(gemini_endpoint, json=payload)
             
             if response.status_code != 200:
-                logger.warning(f"Groq API returned status {response.status_code}. Falling back to high-fidelity local match.")
+                logger.warning(f"Gemini API returned status {response.status_code}. Falling back to high-fidelity local match.")
                 fallback_text, fallback_ids = local_scout_search(request.message, properties)
                 return ScoutResponse(response=fallback_text, recommended_property_ids=fallback_ids)
                 
             response_json = response.json()
-            ai_text = response_json["choices"][0]["message"]["content"]
+            ai_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
             
             # Parse the recommended IDs block from the text response
             recommended_ids = []
@@ -209,6 +207,6 @@ async def suggest_properties(request: ScoutRequest, db: Session = Depends(get_db
             )
             
     except Exception as e:
-        logger.warning(f"Error in Groq API request: {e}. Triggering fallback local search match.")
+        logger.warning(f"Error in Gemini API request: {e}. Triggering fallback local search match.")
         fallback_text, fallback_ids = local_scout_search(request.message, properties)
         return ScoutResponse(response=fallback_text, recommended_property_ids=fallback_ids)
