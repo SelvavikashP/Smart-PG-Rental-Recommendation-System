@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+env/
+.env/
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Databases
+*.db
+*.sqlite3
+sql_app.db
+
+# Environmental files & secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Operating System files
+.DS_Store
+Thumbs.db
