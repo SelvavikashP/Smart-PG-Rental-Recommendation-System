@@ -8,6 +8,9 @@ import re
 import logging
 from ..database import get_db
 from ..models.property import Property
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger("uvicorn.error")
 
