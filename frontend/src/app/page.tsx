@@ -87,6 +87,20 @@ export default function SmartPGApp() {
     food_availability: false,
   });
   
+  // AI Scout States
+  const [showAiScout, setShowAiScout] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiMessages, setAiMessages] = useState<Array<{
+    role: "user" | "assistant";
+    content: string;
+    recommendedIds?: number[];
+  }>>([
+    {
+      role: "assistant",
+      content: "Hello! I am your SmartPG AI Scout ✨.\n\nDescribe the perfect PG or rental house you are looking for (e.g., location, budget, occupancy, amenities, or warden verification index) and I will query our database to suggest matching direct-owner listings instantly!"
+    }
+  ]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
   
   // Forms States
@@ -135,6 +149,62 @@ export default function SmartPGApp() {
 
   // Maps Integration State
   const [mapProperty, setMapProperty] = useState<Property | null>(null);
+
+  const handleSendAiMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiMessage.trim() || isAiLoading) return;
+
+    const userMsg = aiMessage.trim();
+    setAiMessage("");
+    
+    // Add user message to UI state
+    const updatedHistory = [...aiMessages, { role: "user" as const, content: userMsg }];
+    setAiMessages(updatedHistory);
+    setIsAiLoading(true);
+
+    try {
+      // Format history for backend API request
+      const formattedHistory = updatedHistory.slice(1, -1).map(m => ({
+        role: m.role,
+        content: m.content
+      }));
+
+      // Fire POST request to FastAPI backend AI router
+      const response = await fetch(`${API_BASE_URL}/api/ai/suggest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMsg,
+          chat_history: formattedHistory
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Add assistant response + parsed recommended IDs to chat log
+        setAiMessages(prev => [...prev, {
+          role: "assistant",
+          content: data.response,
+          recommendedIds: data.recommended_property_ids
+        }]);
+        
+        // Trigger celebration confetti on successful matches
+        if (data.recommended_property_ids && data.recommended_property_ids.length > 0) {
+          confetti({ particleCount: 50, spread: 45, origin: { x: 0.8, y: 0.8 } });
+        }
+      } else {
+        throw new Error("Failed to receive AI suggestion.");
+      }
+    } catch (e) {
+      console.error("AI Scout error:", e);
+      setAiMessages(prev => [...prev, {
+        role: "assistant",
+        content: "I encountered a slight network hiccup while searching the listings. Make sure your FastAPI backend server is running and try again!"
+      }]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
 
   async function checkBackendHealth() {
     try {
@@ -1766,6 +1836,193 @@ export default function SmartPGApp() {
                 Close Map
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* Premium Floating AI Scout Button */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <button
+          onClick={() => setShowAiScout(true)}
+          className="relative group flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 text-white shadow-[0_0_20px_rgba(139,92,246,0.5)] hover:shadow-[0_0_30px_rgba(139,92,246,0.8)] hover:scale-105 transition-all duration-300 cursor-pointer animate-pulse"
+          title="Open AI Scout Advisor"
+        >
+          <Sparkles className="w-6 h-6 group-hover:rotate-12 transition-transform duration-300" />
+          <span className="absolute right-16 px-3 py-1.5 rounded-lg bg-slate-900 border border-indigo-500/30 text-[11px] text-indigo-300 font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300 pointer-events-none shadow-xl">
+            Ask SmartPG AI Scout ✨
+          </span>
+        </button>
+      </div>
+
+      {/* Slide-over AI Scout Panel */}
+      {showAiScout && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm transition-all duration-300">
+          {/* Click outside to close */}
+          <div className="absolute inset-0" onClick={() => setShowAiScout(false)} />
+          
+          {/* Panel Content */}
+          <div className="relative w-full max-w-md h-full bg-slate-900 border-l border-slate-800 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-slate-800 bg-gradient-to-r from-slate-950 to-indigo-950/40 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                  <Sparkles className="w-4.5 h-4.5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100 tracking-wide flex items-center gap-1.5">
+                    SmartPG AI Scout
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-[9px] text-emerald-400 font-extrabold uppercase tracking-widest border border-emerald-500/20 animate-pulse">
+                      Online
+                    </span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400">Direct-Owner Recommendation Engine</p>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => setShowAiScout(false)}
+                className="p-2 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-slate-700 hover:text-white transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Chat Messages Thread */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-900/40 scrolling-touch">
+              {aiMessages.map((msg, idx) => (
+                <div key={idx} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                  {/* Message bubble */}
+                  <div className={`max-w-[85%] rounded-xl p-3 text-[12px] leading-relaxed shadow-lg ${
+                    msg.role === "user" 
+                      ? "bg-indigo-600 text-white rounded-tr-none shadow-indigo-600/10" 
+                      : "bg-slate-950 border border-slate-800 text-slate-200 rounded-tl-none shadow-black/40"
+                  }`}>
+                    <div className="whitespace-pre-line break-words">
+                      {/* Clean the custom tag block from the user-facing bubble content */}
+                      {msg.content.replace(/\[RECOMMENDED_IDS:[\s\d,]*?\]/g, "").trim()}
+                    </div>
+                  </div>
+
+                  {/* Embedded Property miniature cards if recommended in this assistant bubble */}
+                  {msg.role === "assistant" && msg.recommendedIds && msg.recommendedIds.length > 0 && (
+                    <div className="mt-3 w-full space-y-2.5 max-w-[90%]">
+                      <p className="text-[10px] text-indigo-400 font-bold tracking-wide uppercase px-1">
+                        Recommended verified properties:
+                      </p>
+                      {msg.recommendedIds.map(propId => {
+                        const prop = properties.find(p => p.id === propId);
+                        if (!prop) return null;
+                        
+                        // Parse images
+                        let imgs = ["https://images.unsplash.com/photo-1555854817-cc0867f8e925?w=400"];
+                        try { imgs = JSON.parse(prop.images); } catch(e){}
+
+                        return (
+                          <div key={prop.id} className="group/card relative bg-slate-950 border border-indigo-500/20 hover:border-indigo-500/40 rounded-xl overflow-hidden shadow-2xl transition-all duration-300 flex flex-col p-2.5 gap-2.5">
+                            <div className="flex gap-2.5">
+                              <img 
+                                src={imgs[0]} 
+                                alt={prop.title}
+                                className="w-16 h-16 rounded-lg object-cover border border-slate-800"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-[8px] text-indigo-300 font-bold uppercase tracking-wider">
+                                    {prop.property_type}
+                                  </span>
+                                  <span className="text-[10px] text-emerald-400 font-extrabold ml-auto">
+                                    ₹{prop.price}/mo
+                                  </span>
+                                </div>
+                                <h4 className="text-[11px] font-bold text-slate-100 truncate group-hover/card:text-indigo-400 transition-colors">
+                                  {prop.title}
+                                </h4>
+                                <p className="text-[9px] text-slate-400 truncate flex items-center gap-0.5 mt-0.5">
+                                  <MapPin className="w-2.5 h-2.5 text-slate-500" />
+                                  {prop.address}, {prop.city}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Trust badges and direct contact buttons */}
+                            <div className="flex items-center justify-between border-t border-slate-800/60 pt-2 text-[9px]">
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/5 text-indigo-300 font-extrabold border border-indigo-500/10">
+                                <Shield className="w-2.5 h-2.5 text-indigo-400" />
+                                Trust {prop.safety_score}/10
+                              </span>
+
+                              <a
+                                href={`https://wa.me/91${prop.owner_id === 101 ? "9876543211" : "9876543212"}?text=Hello,%20I%20am%20interested%20in%20your%20verified%20SmartPG%20listing:%20${encodeURIComponent(prop.title)}.`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer transition-all flex items-center gap-1 shadow-lg shadow-emerald-600/10 hover:shadow-emerald-500/20 hover:scale-102"
+                              >
+                                <Phone className="w-2.5 h-2.5" />
+                                Contact Owner
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Loading skeleton while fetching */}
+              {isAiLoading && (
+                <div className="flex flex-col items-start space-y-1">
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl rounded-tl-none p-3 text-[12px] text-slate-400 flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.2s]" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce [animation-delay:0.4s]" />
+                    </div>
+                    <span>Scouting matching accommodations...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Prompt Suggestions */}
+            <div className="p-2 border-t border-slate-800 bg-slate-950/40 flex gap-1.5 overflow-x-auto whitespace-nowrap scrolling-touch scrollbar-none">
+              {[
+                "Boys PG in Bangalore",
+                "Girls single room under 9000",
+                "Verified near Christ University",
+                "Rentals with meals included"
+              ].map((prompt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setAiMessage(prompt);
+                  }}
+                  className="px-2.5 py-1 text-[10px] text-slate-300 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-full cursor-pointer transition-all active:scale-95"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+
+            {/* Drawer Footer Input form */}
+            <form onSubmit={handleSendAiMessage} className="p-3 border-t border-slate-800 bg-slate-950 flex gap-2">
+              <input
+                type="text"
+                value={aiMessage}
+                onChange={e => setAiMessage(e.target.value)}
+                placeholder="Type your accommodation search criteria..."
+                className="flex-1 bg-slate-900 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-[12px] text-slate-100 focus:outline-none transition-all placeholder:text-slate-500"
+                disabled={isAiLoading}
+              />
+              <button
+                type="submit"
+                disabled={isAiLoading || !aiMessage.trim()}
+                className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white disabled:text-slate-500 font-bold transition-all cursor-pointer shadow-lg shadow-indigo-600/10 active:scale-95"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
           </div>
         </div>
       )}
